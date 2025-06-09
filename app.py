@@ -5,10 +5,11 @@ import os
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 from dotenv import load_dotenv
-import zipfile
 import requests
+import zipfile
+import shutil
 
-# ✅ .env 로드
+# ✅ .env 환경변수 로드
 load_dotenv()
 
 app = Flask(__name__)
@@ -20,15 +21,15 @@ ZIP_PATH = "model.zip"
 if not os.path.exists(MODEL_DIR):
     print("📦 모델 다운로드 및 압축 해제 시작...")
 
-    file_id = "1OePIuuubbLraXgKml4bgF6dp8thvnpY_"
+    file_id = "1v3nmJH2zeUcglZMjqaIWeo16Oe5D9MGe"
     url = f"https://drive.google.com/uc?export=download&id={file_id}"
-    response = requests.get(url)
 
-    with open(ZIP_PATH, "wb") as f:
-        f.write(response.content)
+    with requests.get(url, stream=True) as r:
+        with open(ZIP_PATH, "wb") as f:
+            shutil.copyfileobj(r.raw, f)
 
     with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
-        zip_ref.extractall(MODEL_DIR)
+        zip_ref.extractall(".")
 
     print("✅ 모델 압축 해제 완료!")
 
@@ -53,7 +54,7 @@ def predict_tag(image_path):
         pred_index = torch.argmax(probs).item()
         return class_names[pred_index]
 
-# ✅ DB 설정
+# ✅ DB 연결 설정
 DB_CONFIG = {
     'host': os.getenv("DB_HOST"),
     'port': int(os.getenv("DB_PORT")),
@@ -63,7 +64,7 @@ DB_CONFIG = {
     'charset': 'utf8mb4'
 }
 
-# ✅ 업로드 경로
+# ✅ 이미지 업로드 경로
 UPLOADS_DIR = "./uploads"
 
 # ✅ API 엔드포인트
