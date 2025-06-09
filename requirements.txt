@@ -5,3 +5,4 @@ transformers
 Pillow
 python-dotenv
 flask-cors
+gunicorn
