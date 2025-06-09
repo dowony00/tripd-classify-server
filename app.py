@@ -1,110 +1,126 @@
-from flask import Flask, jsonify
-import pymysql
-import torch
+from flask import Flask, request, jsonify
+from flask_cors import CORS
 import os
+import zipfile
+import requests
+
+import torch
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
-from dotenv import load_dotenv
-import requests
-import zipfile
-import shutil
 
-# ✅ .env 환경변수 로드
-load_dotenv()
-
-app = Flask(__name__)
-
-# ✅ 모델 zip 파일 다운로드 및 압축 해제
-MODEL_DIR = "./clip_finetuned_model"
+# ------------------------------
+# 모델 다운로드
+# ------------------------------
+MODEL_DIR = "clip_finetuned_model"
 ZIP_PATH = "model.zip"
+GOOGLE_FILE_ID = "1v3nmJH2zeUcglZMjqaIWeo16Oe5D9MGe"
+
+def download_file_from_google_drive(file_id, destination):
+    print("📥 모델 다운로드 시작")
+    URL = "https://drive.google.com/uc?export=download"
+    session = requests.Session()
+    response = session.get(URL, params={'id': file_id}, stream=True)
+    token = get_confirm_token(response)
+    if token:
+        response = session.get(URL, params={'id': file_id, 'confirm': token}, stream=True)
+    save_response_content(response, destination)
+
+def get_confirm_token(response):
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            return value
+    return None
+
+def save_response_content(response, destination):
+    CHUNK_SIZE = 32768
+    with open(destination, "wb") as f:
+        for chunk in response.iter_content(CHUNK_SIZE):
+            if chunk:
+                f.write(chunk)
 
 if not os.path.exists(MODEL_DIR):
-    print("📦 모델 다운로드 및 압축 해제 시작...")
-
-    file_id = "1v3nmJH2zeUcglZMjqaIWeo16Oe5D9MGe"
-    url = f"https://drive.google.com/uc?export=download&id={file_id}"
-
-    with requests.get(url, stream=True) as r:
-        with open(ZIP_PATH, "wb") as f:
-            shutil.copyfileobj(r.raw, f)
-
+    download_file_from_google_drive(GOOGLE_FILE_ID, ZIP_PATH)
     with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
         zip_ref.extractall(".")
 
-    print("✅ 모델 압축 해제 완료!")
+# ------------------------------
+# Flask 초기화
+# ------------------------------
+app = Flask(__name__)
+CORS(app)
 
-# ✅ 디바이스 설정
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = "cuda" if torch.cuda.is_available() else "cpu"
+model = CLIPModel.from_pretrained(MODEL_DIR).to(device)
+processor = CLIPProcessor.from_pretrained(MODEL_DIR)
 
-# ✅ 모델 로드
-model = CLIPModel.from_pretrained(MODEL_DIR, local_files_only=True).to(device)
-processor = CLIPProcessor.from_pretrained(MODEL_DIR, local_files_only=True)
-model.eval()
-
-# ✅ 클래스 목록
-class_names = ["food", "people", "landscape", "accommodation"]
-
-# ✅ 분류 함수
-def predict_tag(image_path):
-    image = Image.open(image_path).convert("RGB")
-    inputs = processor(text=class_names, images=image, return_tensors="pt", padding=True).to(device)
-    with torch.no_grad():
-        outputs = model(**inputs)
-        probs = outputs.logits_per_image.softmax(dim=1)
-        pred_index = torch.argmax(probs).item()
-        return class_names[pred_index]
-
-# ✅ DB 연결 설정
-DB_CONFIG = {
-    'host': os.getenv("DB_HOST"),
-    'port': int(os.getenv("DB_PORT")),
-    'user': os.getenv("DB_USER"),
-    'password': os.getenv("DB_PASSWORD"),
-    'db': os.getenv("DB_NAME"),
-    'charset': 'utf8mb4'
+# ------------------------------
+# 분류 카테고리
+# ------------------------------
+CATEGORIES = {
+    "people": [
+        "This is a photo of a person.",
+        "A person is smiling in the picture.",
+        "Portrait of a traveler.",
+        "A man or woman posing in the photo.",
+        "Someone enjoying their trip."
+    ],
+    "landscape": [
+        "Beautiful nature scenery.",
+        "Landscape photo from travel.",
+        "A view of nature or cityscape.",
+        "Mountains, beaches, or fields in the distance.",
+        "Outdoor environment during trip."
+    ],
+    "food": [
+        "Delicious food from a restaurant.",
+        "A dish served during travel.",
+        "Close-up of a meal.",
+        "Photo of something tasty.",
+        "Local cuisine from a trip."
+    ],
+    "accommodation": [
+        "Hotel room or guest house.",
+        "Place where traveler stayed.",
+        "Accommodation interior view.",
+        "Where the traveler slept.",
+        "Bed and room for travel lodging."
+    ]
 }
 
-# ✅ 이미지 업로드 경로
-UPLOADS_DIR = "./uploads"
+# ------------------------------
+# 분류 API
+# ------------------------------
+@app.route("/classify", methods=["POST"])
+def classify():
+    if 'image' not in request.files:
+        return jsonify({"error": "No image file provided"}), 400
 
-# ✅ API 엔드포인트
-@app.route('/classify', methods=['POST'])
-def classify_images():
-    conn = pymysql.connect(**DB_CONFIG)
-    cursor = conn.cursor(pymysql.cursors.DictCursor)
+    image_file = request.files['image']
+    image = Image.open(image_file.stream).convert("RGB")
 
-    cursor.execute("SELECT photo_idx, file_name FROM photo_info WHERE tags IS NULL OR tags = ''")
-    photos = cursor.fetchall()
+    texts = []
+    tags = []
+    for tag, sentences in CATEGORIES.items():
+        texts.extend(sentences)
+        tags.extend([tag] * len(sentences))
 
-    classified_count = 0
-
-    for photo in photos:
-        photo_idx = photo['photo_idx']
-        filename = os.path.basename(photo['file_name'].replace('\\', '/'))
-        image_path = os.path.join(UPLOADS_DIR, filename)
-
-        if not os.path.exists(image_path):
-            print(f"❌ 파일 없음: {image_path}")
-            continue
-
-        try:
-            tag = predict_tag(image_path)
-            cursor.execute("UPDATE photo_info SET tags = %s WHERE photo_idx = %s", (tag, photo_idx))
-            conn.commit()
-            print(f"✅ 분류 완료: {filename} → {tag}")
-            classified_count += 1
-        except Exception as e:
-            print(f"⚠️ 예측 실패 ({filename}): {e}")
-
-    cursor.close()
-    conn.close()
+    inputs = processor(text=texts, images=[image], return_tensors="pt", padding=True).to(device)
+    outputs = model(**inputs)
+    probs = outputs.logits_per_image.softmax(dim=1)[0]
+    best_idx = torch.argmax(probs).item()
 
     return jsonify({
-        "status": "success",
-        "classified": classified_count
+        "tag": tags[best_idx],
+        "confidence": round(probs[best_idx].item(), 4)
     })
 
-# ✅ 서버 실행
-if __name__ == '__main__':
+@app.route("/")
+def home():
+    return "CLIP 분류 API 작동 중입니다."
+
+# ------------------------------
+# 서버 실행
+# ------------------------------
+if __name__ == "__main__":
     port = int(os.environ.get("PORT", 6006))
-    app.run(host='0.0.0.0', port=port)
+    app.run(host="0.0.0.0", port=port)
