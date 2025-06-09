@@ -1,0 +1,7 @@
+flask
+pymysql
+torch
+transformers
+Pillow
+python-dotenv
+flask-cors
