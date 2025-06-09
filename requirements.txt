@@ -6,3 +6,5 @@ Pillow
 python-dotenv
 flask-cors
 gunicorn
+gdown
+unzip
