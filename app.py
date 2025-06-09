@@ -5,8 +5,8 @@ import os
 from PIL import Image
 from transformers import CLIPProcessor, CLIPModel
 from dotenv import load_dotenv
-import gdown
 import zipfile
+import requests
 
 # ✅ .env 로드
 load_dotenv()
@@ -21,8 +21,11 @@ if not os.path.exists(MODEL_DIR):
     print("📦 모델 다운로드 및 압축 해제 시작...")
 
     file_id = "1OePIuuubbLraXgKml4bgF6dp8thvnpY_"
-    url = f"https://drive.google.com/uc?id={file_id}"
-    gdown.download(url, ZIP_PATH, quiet=False)
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    response = requests.get(url)
+
+    with open(ZIP_PATH, "wb") as f:
+        f.write(response.content)
 
     with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
         zip_ref.extractall(MODEL_DIR)
