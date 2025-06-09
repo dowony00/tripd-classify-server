@@ -14,9 +14,13 @@ app = Flask(__name__)
 # ✅ 디바이스 설정
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# ✅ 모델 로드
-model = CLIPModel.from_pretrained("./clip_finetuned_model").to(device)
-processor = CLIPProcessor.from_pretrained("./clip_finetuned_model")
+# ✅ 모델 로드 (Render에서 오류 방지를 위해 local_files_only 옵션 추가)
+model = CLIPModel.from_pretrained(
+    "./clip_finetuned_model", local_files_only=True
+).to(device)
+processor = CLIPProcessor.from_pretrained(
+    "./clip_finetuned_model", local_files_only=True
+)
 model.eval()
 
 # ✅ 클래스 목록
@@ -32,7 +36,7 @@ def predict_tag(image_path):
         pred_index = torch.argmax(probs).item()
         return class_names[pred_index]
 
-# ✅ DB 설정 (env에서 불러옴)
+# ✅ DB 설정 (.env에서 불러오기)
 DB_CONFIG = {
     'host': os.getenv("DB_HOST"),
     'port': int(os.getenv("DB_PORT")),
@@ -42,7 +46,7 @@ DB_CONFIG = {
     'charset': 'utf8mb4'
 }
 
-# ✅ 업로드 경로 (상대경로로 변경)
+# ✅ 업로드 폴더 경로 (상대 경로)
 UPLOADS_DIR = "./uploads"
 
 # ✅ API 엔드포인트
@@ -82,7 +86,7 @@ def classify_images():
         "classified": classified_count
     })
 
-# ✅ 서버 실행
+# ✅ 서버 실행 (Render 환경 고려)
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 6006))  # Render가 제공하는 포트를 우선 사용
     app.run(host='0.0.0.0', port=port)
