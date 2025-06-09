@@ -23,6 +23,7 @@ def download_file_from_google_drive(file_id, destination):
     token = get_confirm_token(response)
     if token:
         response = session.get(URL, params={'id': file_id, 'confirm': token}, stream=True)
+    response.raise_for_status()
     save_response_content(response, destination)
 
 def get_confirm_token(response):
@@ -50,8 +51,8 @@ app = Flask(__name__)
 CORS(app)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-model = CLIPModel.from_pretrained(MODEL_DIR).to(device)
-processor = CLIPProcessor.from_pretrained(MODEL_DIR)
+model = CLIPModel.from_pretrained(MODEL_DIR, local_files_only=True).to(device)
+processor = CLIPProcessor.from_pretrained(MODEL_DIR, local_files_only=True)
 
 # ------------------------------
 # 분류 카테고리
