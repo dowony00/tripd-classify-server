@@ -23,7 +23,6 @@ def download_file_from_google_drive(file_id, destination):
     token = get_confirm_token(response)
     if token:
         response = session.get(URL, params={'id': file_id, 'confirm': token}, stream=True)
-    response.raise_for_status()
     save_response_content(response, destination)
 
 def get_confirm_token(response):
@@ -43,6 +42,7 @@ if not os.path.exists(MODEL_DIR):
     download_file_from_google_drive(GOOGLE_FILE_ID, ZIP_PATH)
     with zipfile.ZipFile(ZIP_PATH, 'r') as zip_ref:
         zip_ref.extractall(".")
+    print("✅ 모델 압축 해제 완료!")
 
 # ------------------------------
 # Flask 초기화
@@ -51,8 +51,8 @@ app = Flask(__name__)
 CORS(app)
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-model = CLIPModel.from_pretrained(MODEL_DIR, local_files_only=True).to(device)
-processor = CLIPProcessor.from_pretrained(MODEL_DIR, local_files_only=True)
+model = CLIPModel.from_pretrained(MODEL_DIR).to(device)
+processor = CLIPProcessor.from_pretrained(MODEL_DIR)
 
 # ------------------------------
 # 분류 카테고리
